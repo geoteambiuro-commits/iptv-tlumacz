@@ -123,6 +123,16 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("subBg", true)
         set(v) = sp.edit().putBoolean("subBg", v).apply()
 
+    /** Kolor polskiej linii napisów (ARGB). */
+    var subColor: Int
+        get() = sp.getInt("subColor", 0xFFFFE14D.toInt())
+        set(v) = sp.edit().putInt("subColor", v).apply()
+
+    /** Ostatnio oglądany kanał (adres|nazwa). */
+    var lastChannel: String
+        get() = sp.getString("lastCh", "") ?: ""
+        set(v) = sp.edit().putString("lastCh", v).apply()
+
     /** Zapis ostatniej awarii (czarna skrzynka). */
     var lastCrash: String
         get() = sp.getString("lastCrash", "") ?: ""

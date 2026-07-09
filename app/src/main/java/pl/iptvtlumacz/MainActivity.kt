@@ -27,7 +27,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -201,6 +204,7 @@ fun App() {
         player = p
         playing = ch
         engine.start()
+        prefs.lastChannel = ch.url + "|" + ch.name
     }
 
     fun step(delta: Int) {
@@ -225,6 +229,7 @@ fun App() {
             subSize = prefs.subSize,
             subPos = prefs.subPos,
             subBg = prefs.subBg,
+            subColor = prefs.subColor,
             showOrig = showOrig,
             isFav = playing!!.url in favorites,
             onToggleOrig = { showOrig = !showOrig; prefs.showOrig = showOrig },
@@ -236,6 +241,7 @@ fun App() {
     } else {
         MainScreen(
             channels = channels, favorites = favorites,
+            lastChannel = prefs.lastChannel,
             tab = tab, onTab = { tab = it; selectedGroup = null },
             selectedGroup = selectedGroup, onGroup = { selectedGroup = it },
             search = search, onSearch = { search = it },
@@ -262,6 +268,7 @@ fun App() {
 @Composable
 fun MainScreen(
     channels: List<Channel>, favorites: Set<String>,
+    lastChannel: String,
     tab: Int, onTab: (Int) -> Unit,
     selectedGroup: String?, onGroup: (String?) -> Unit,
     search: String, onSearch: (String) -> Unit,
@@ -313,6 +320,27 @@ fun MainScreen(
         if (status.isNotBlank())
             Text(status, color = Dim, fontSize = 12.5.sp,
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp))
+
+        // Wznów ostatni kanał
+        val lastUrl = lastChannel.substringBefore("|")
+        val lastName = lastChannel.substringAfter("|", "")
+        val lastCh = channels.firstOrNull { it.url == lastUrl }
+        if (lastCh != null && lastName.isNotBlank()) {
+            Row(
+                Modifier.fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                    .background(Panel2, RoundedCornerShape(10.dp))
+                    .clickable { onPick(lastCh) }
+                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("▶", color = Accent, fontSize = 14.sp)
+                Spacer(Modifier.width(10.dp))
+                Text("Wznów: $lastName", color = TextC, fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis)
+            }
+        }
 
         // Brak playlisty → pole na adres
         if (channels.isEmpty()) {
@@ -461,7 +489,7 @@ fun ChannelList(
 fun PlayerScreen(
     channel: Channel, player: ExoPlayer,
     subOrig: String, subPl: String, status: String,
-    subSize: Int, subPos: Int, subBg: Boolean,
+    subSize: Int, subPos: Int, subBg: Boolean, subColor: Int,
     showOrig: Boolean, isFav: Boolean,
     onToggleOrig: () -> Unit, onToggleFav: () -> Unit,
     onPrev: () -> Unit, onNext: () -> Unit,
@@ -517,7 +545,8 @@ fun PlayerScreen(
         }
 
         // Napisy
-        val bottomPad = when (subPos) { 1 -> 110.dp; 2 -> 200.dp; else -> 46.dp }
+        val bottomPad = when (subPos) { 1 -> 110.dp; 2 -> 200.dp; 3 -> 8.dp; else -> 46.dp }
+        val subShadow = TextStyle(shadow = Shadow(Color.Black, Offset(0f, 2f), blurRadius = 8f))
         val bgOrig = if (subBg) Color(0x73000000) else Color.Transparent
         val bgPl = if (subBg) Color(0x80000000) else Color.Transparent
         Column(
@@ -539,9 +568,9 @@ fun PlayerScreen(
             }
             if (subPl.isNotBlank()) {
                 Text(
-                    subPl, color = SubYellow, fontSize = subSize.sp,
+                    subPl, color = Color(subColor), fontSize = subSize.sp,
                     fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
-                    lineHeight = (subSize + 6).sp,
+                    lineHeight = (subSize + 6).sp, style = subShadow,
                     modifier = Modifier
                         .background(bgPl, RoundedCornerShape(8.dp))
                         .padding(horizontal = 14.dp, vertical = 5.dp),
@@ -564,6 +593,7 @@ fun SettingsDialog(
     var subSize by remember { mutableIntStateOf(prefs.subSize) }
     var subPos by remember { mutableIntStateOf(prefs.subPos) }
     var subBg by remember { mutableStateOf(prefs.subBg) }
+    var subColor by remember { mutableIntStateOf(prefs.subColor) }
     val langs = listOf(
         "auto" to "wykryj automatycznie", "de" to "niemiecki", "it" to "włoski",
         "en" to "angielski", "fr" to "francuski", "es" to "hiszpański",
@@ -579,6 +609,7 @@ fun SettingsDialog(
                 prefs.subSize = subSize
                 prefs.subPos = subPos
                 prefs.subBg = subBg
+                prefs.subColor = subColor
                 onClose()
             }) { Text("Zapisz") }
         },
@@ -623,14 +654,38 @@ fun SettingsDialog(
                     valueRange = 16f..32f, steps = 15,
                 )
                 Text("Napisy — pozycja:", color = Dim, fontSize = 13.sp)
+                val positions = listOf("przy krawędzi" to 3, "nisko" to 0, "średnio" to 1, "wysoko" to 2)
+                positions.chunked(2).forEach { rowItems ->
+                    Row {
+                        rowItems.forEach { (label, v) ->
+                            Row(
+                                Modifier.weight(1f).clickable { subPos = v },
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                RadioButton(selected = subPos == v, onClick = { subPos = v })
+                                Text(label, fontSize = 13.sp)
+                            }
+                        }
+                    }
+                }
+                Text("Napisy — kolor:", color = Dim, fontSize = 13.sp)
+                val colors = listOf(
+                    0xFFFFE14D.toInt(), 0xFFFFFFFF.toInt(), 0xFF69F0AE.toInt(),
+                    0xFF4FC3F7.toInt(), 0xFFFFB74D.toInt(),
+                )
                 Row {
-                    listOf("nisko", "średnio", "wysoko").forEachIndexed { i, label ->
-                        Row(
-                            Modifier.clickable { subPos = i }.padding(end = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                    colors.forEach { c ->
+                        Box(
+                            Modifier.padding(end = 10.dp).size(32.dp)
+                                .background(Color(c), RoundedCornerShape(16.dp))
+                                .then(
+                                    if (subColor == c) Modifier.padding(0.dp) else Modifier
+                                )
+                                .clickable { subColor = c },
+                            contentAlignment = Alignment.Center,
                         ) {
-                            RadioButton(selected = subPos == i, onClick = { subPos = i })
-                            Text(label, fontSize = 13.sp)
+                            if (subColor == c)
+                                Text("✓", color = Color.Black, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
