@@ -13,6 +13,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -34,6 +35,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
@@ -62,6 +64,15 @@ private val TextC = Color(0xFFDBE4EE)
 private val Dim = Color(0xFF8B9AAC)
 private val Accent = Color(0xFF4FC3F7)
 private val SubYellow = Color(0xFFFFE14D)
+
+@Composable
+fun Modifier.tvFocusBorder(shape: RoundedCornerShape = RoundedCornerShape(10.dp)): Modifier {
+    var focused by remember { mutableStateOf(false) }
+    return this
+        .onFocusChanged { focused = it.isFocused || it.hasFocus }
+        .border(if (focused) 2.dp else 0.dp,
+            if (focused) Accent else Color.Transparent, shape)
+}
 
 fun Context.findActivity(): Activity? {
     var ctx = this
@@ -391,6 +402,7 @@ fun MainScreen(
                 Modifier.fillMaxWidth()
                     .padding(horizontal = 10.dp, vertical = 4.dp)
                     .background(Panel2, RoundedCornerShape(10.dp))
+                    .tvFocusBorder()
                     .clickable { onPick(lastCh) }
                     .padding(horizontal = 12.dp, vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -449,6 +461,7 @@ fun MainScreen(
                             val n = groups[g]?.size ?: 0
                             Column(
                                 Modifier.background(Panel, RoundedCornerShape(10.dp))
+                                    .tvFocusBorder()
                                     .clickable { onGroup(g) }
                                     .padding(14.dp),
                             ) {
@@ -499,6 +512,7 @@ fun ChannelList(
                 Modifier.fillMaxWidth()
                     .padding(horizontal = 10.dp, vertical = 3.dp)
                     .background(Panel, RoundedCornerShape(10.dp))
+                    .tvFocusBorder()
                     .clickable { onPick(ch) }
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -689,6 +703,9 @@ fun SettingsDialog(
     var subPos by remember { mutableIntStateOf(prefs.subPos) }
     var subBg by remember { mutableStateOf(prefs.subBg) }
     var subColor by remember { mutableIntStateOf(prefs.subColor) }
+    var syncMode by remember { mutableIntStateOf(0) }   // 0 nic, 1 odbiór (TV), 2 wysyłka
+    var tvIp by remember { mutableStateOf("") }
+    var syncMsg by remember { mutableStateOf("") }
     val langs = listOf(
         "auto" to "wykryj automatycznie", "de" to "niemiecki", "it" to "włoski",
         "en" to "angielski", "fr" to "francuski", "es" to "hiszpański",
@@ -788,6 +805,67 @@ fun SettingsDialog(
                     Checkbox(checked = subBg, onCheckedChange = { subBg = it })
                     Text("Ciemne tło pod napisami", fontSize = 14.sp)
                 }
+                HorizontalDivider()
+                Text("Przesyłanie ustawień (telefon ↔ TV, ta sama sieć Wi-Fi):",
+                    color = Dim, fontSize = 13.sp)
+                Row {
+                    OutlinedButton(onClick = {
+                        syncMode = if (syncMode == 1) 0 else 1
+                    }, modifier = Modifier.weight(1f)) {
+                        Text(if (syncMode == 1) "Zatrzymaj odbiór" else "Odbierz (TV)",
+                            fontSize = 12.sp)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedButton(onClick = {
+                        syncMode = if (syncMode == 2) 0 else 2
+                    }, modifier = Modifier.weight(1f)) {
+                        Text("Wyślij na TV", fontSize = 12.sp)
+                    }
+                }
+                if (syncMode == 1) {
+                    DisposableEffect(Unit) {
+                        val port = SettingsSync.startReceiver { payload ->
+                            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                if (payload.openai.isNotBlank()) openai = payload.openai
+                                if (payload.anthropic.isNotBlank()) anthropic = payload.anthropic
+                                if (payload.m3u.isNotBlank()) m3u = payload.m3u
+                                prefs.openaiKey = openai.trim()
+                                prefs.anthropicKey = anthropic.trim()
+                                if (payload.m3u.isNotBlank()) prefs.m3uUrl = payload.m3u.trim()
+                                syncMsg = "Odebrano ustawienia! Kliknij Zapisz."
+                            }
+                        }
+                        val ip = SettingsSync.localIp()
+                        syncMsg = if (port != null && ip != null)
+                            "Czekam... Na telefonie: Ustawienia → Wyślij na TV → wpisz: $ip" +
+                            (if (port != 8765) ":$port" else "")
+                        else "Nie udało się uruchomić odbiornika"
+                        onDispose { SettingsSync.stop() }
+                    }
+                }
+                if (syncMode == 2) {
+                    val scope = rememberCoroutineScope()
+                    OutlinedTextField(
+                        value = tvIp, onValueChange = { tvIp = it },
+                        label = { Text("Adres pokazany na TV (np. 192.168.0.15)") },
+                        singleLine = true,
+                    )
+                    Button(onClick = {
+                        syncMsg = "Wysyłam..."
+                        scope.launch(Dispatchers.IO) {
+                            val r = SettingsSync.send(tvIp, m3u.trim(),
+                                openai.trim(), anthropic.trim())
+                            launch(Dispatchers.Main) {
+                                syncMsg = r.fold(
+                                    onSuccess = { "Wysłano — sprawdź TV" },
+                                    onFailure = { "Błąd: ${'$'}{it.message}" },
+                                )
+                            }
+                        }
+                    }) { Text("Wyślij") }
+                }
+                if (syncMsg.isNotBlank())
+                    Text(syncMsg, color = Accent, fontSize = 13.sp)
             }
         },
     )
