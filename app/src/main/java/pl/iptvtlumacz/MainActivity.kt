@@ -63,13 +63,51 @@ class MainActivity : ComponentActivity() {
             previous?.uncaughtException(thread, e)
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        val crash = prefsForCrash.lastCrash
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(
                 background = Bg, surface = Panel, primary = Accent,
                 onBackground = TextC, onSurface = TextC,
             )) {
-                App()
+                if (crash.isNotBlank()) {
+                    CrashScreen(crash) {
+                        prefsForCrash.lastCrash = ""
+                        recreate()
+                    }
+                } else {
+                    App()
+                }
             }
+        }
+    }
+}
+
+@Composable
+fun CrashScreen(text: String, onClose: () -> Unit) {
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    Column(
+        Modifier.fillMaxSize().background(Bg).systemBarsPadding().padding(16.dp),
+    ) {
+        Text("Poprzednie uruchomienie zakończyło się błędem",
+            color = TextC, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(6.dp))
+        Text("Skopiuj poniższą treść i wyślij ją Claude do naprawy:",
+            color = Dim, fontSize = 13.sp)
+        Spacer(Modifier.height(10.dp))
+        Text(
+            text, color = Color(0xFFE8B9B9), fontSize = 11.sp,
+            modifier = Modifier.weight(1f)
+                .background(Panel, RoundedCornerShape(8.dp))
+                .padding(10.dp)
+                .verticalScroll(rememberScrollState()),
+        )
+        Spacer(Modifier.height(10.dp))
+        Row {
+            Button(onClick = {
+                clipboard.setText(androidx.compose.ui.text.AnnotatedString(text))
+            }) { Text("Kopiuj błąd") }
+            Spacer(Modifier.width(10.dp))
+            OutlinedButton(onClick = onClose) { Text("Uruchom aplikację") }
         }
     }
 }
@@ -202,31 +240,6 @@ fun App() {
             onPick = { tune(it) },
             onToggleFav = { toggleFav(it) },
             onSettings = { showSettings = true },
-        )
-    }
-
-    var crashText by remember { mutableStateOf(prefs.lastCrash) }
-    if (crashText.isNotBlank()) {
-        val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
-        AlertDialog(
-            onDismissRequest = { prefs.lastCrash = ""; crashText = "" },
-            confirmButton = {
-                TextButton(onClick = {
-                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(crashText))
-                }) { Text("Kopiuj") }
-            },
-            dismissButton = {
-                TextButton(onClick = { prefs.lastCrash = ""; crashText = "" }) { Text("Zamknij") }
-            },
-            title = { Text("Ostatnie uruchomienie zakończyło się błędem") },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState())) {
-                    Text("Skopiuj poniższą treść i wyślij ją Claude:",
-                        color = Dim, fontSize = 13.sp)
-                    Spacer(Modifier.height(6.dp))
-                    Text(crashText, fontSize = 11.sp)
-                }
-            },
         )
     }
 
