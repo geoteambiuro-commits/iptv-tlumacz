@@ -103,4 +103,8 @@ class Prefs(context: Context) {
     var showOrig: Boolean
         get() = sp.getBoolean("showOrig", true)
         set(v) = sp.edit().putBoolean("showOrig", v).apply()
+
+    var favorites: Set<String>
+        get() = sp.getStringSet("favs", emptySet()) ?: emptySet()
+        set(v) = sp.edit().putStringSet("favs", HashSet(v)).apply()
 }
