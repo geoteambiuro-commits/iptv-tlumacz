@@ -35,7 +35,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
@@ -576,6 +584,13 @@ fun PlayerScreen(
     onBack: () -> Unit,
 ) {
     var controlsVisible by remember { mutableStateOf(true) }
+    val screenFocus = remember { FocusRequester() }
+
+    // Kontrolki chowają się same po 4 s (działa też na TV, gdzie nie ma dotyku)
+    LaunchedEffect(controlsVisible) {
+        if (controlsVisible) { delay(4000); controlsVisible = false }
+    }
+    LaunchedEffect(Unit) { screenFocus.requestFocus() }
 
     // Tryb pełnoekranowy: schowaj paski systemowe na czas odtwarzania
     val view = LocalView.current
@@ -588,15 +603,37 @@ fun PlayerScreen(
         onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    Box(
+        Modifier.fillMaxSize().background(Color.Black)
+            .focusRequester(screenFocus)
+            .focusable()
+            .onKeyEvent { e ->
+                if (e.type != KeyEventType.KeyUp) return@onKeyEvent false
+                when (e.key) {
+                    Key.DirectionUp, Key.ChannelUp -> { onNext(); controlsVisible = true; true }
+                    Key.DirectionDown, Key.ChannelDown -> { onPrev(); controlsVisible = true; true }
+                    Key.DirectionLeft ->
+                        if (!controlsVisible) { onPrev(); true } else false
+                    Key.DirectionRight ->
+                        if (!controlsVisible) { onNext(); true } else false
+                    Key.DirectionCenter, Key.Enter ->
+                        if (!controlsVisible) { controlsVisible = true; true } else false
+                    Key.MediaPlayPause -> {
+                        player.playWhenReady = !player.playWhenReady; true
+                    }
+                    else -> false
+                }
+            }
+    ) {
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
                     useController = true
                     controllerShowTimeoutMs = 3500
+                    isFocusable = false
                     setControllerVisibilityListener(
                         PlayerView.ControllerVisibilityListener { v ->
-                            controlsVisible = v == View.VISIBLE
+                            if (v == View.VISIBLE) controlsVisible = true
                         }
                     )
                 }
