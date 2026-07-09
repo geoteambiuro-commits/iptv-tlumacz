@@ -1,7 +1,14 @@
 package pl.iptvtlumacz
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.os.Bundle
+import android.view.View
 import android.view.WindowManager
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -32,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -54,6 +62,15 @@ private val TextC = Color(0xFFDBE4EE)
 private val Dim = Color(0xFF8B9AAC)
 private val Accent = Color(0xFF4FC3F7)
 private val SubYellow = Color(0xFFFFE14D)
+
+fun Context.findActivity(): Activity? {
+    var ctx = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -544,19 +561,38 @@ fun PlayerScreen(
     onPrev: () -> Unit, onNext: () -> Unit,
     onBack: () -> Unit,
 ) {
+    var controlsVisible by remember { mutableStateOf(true) }
+
+    // Tryb pełnoekranowy: schowaj paski systemowe na czas odtwarzania
+    val view = LocalView.current
+    DisposableEffect(Unit) {
+        val window = view.context.findActivity()?.window
+        val controller = window?.let { WindowCompat.getInsetsController(it, view) }
+        controller?.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        controller?.hide(WindowInsetsCompat.Type.systemBars())
+        onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
+    }
+
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
                     useController = true
-                    controllerShowTimeoutMs = 2500
+                    controllerShowTimeoutMs = 3500
+                    setControllerVisibilityListener(
+                        PlayerView.ControllerVisibilityListener { v ->
+                            controlsVisible = v == View.VISIBLE
+                        }
+                    )
                 }
             },
             update = { it.player = player },
             modifier = Modifier.fillMaxSize(),
         )
 
-        // Pasek górny
+        // Pasek górny — widoczny razem z kontrolkami odtwarzacza
+        if (controlsVisible)
         Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 4.dp),
