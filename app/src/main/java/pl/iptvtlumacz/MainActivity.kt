@@ -155,6 +155,13 @@ fun App() {
         if (System.currentTimeMillis() - subStamp >= 9000) { subOrig = ""; subPl = "" }
     }
 
+    // Komunikaty (błędy, limity) znikają same po 6 s
+    LaunchedEffect(status) {
+        if (status.isBlank()) return@LaunchedEffect
+        delay(6000)
+        status = ""
+    }
+
     fun loadPlaylist() {
         if (m3uUrl.isBlank()) { status = "Podaj adres playlisty M3U"; return }
         loading = true; status = "Pobieram playlistę..."
@@ -194,7 +201,6 @@ fun App() {
         player = p
         playing = ch
         engine.start()
-        status = "Nasłuchuję i tłumaczę..."
     }
 
     fun step(delta: Int) {
