@@ -134,6 +134,8 @@ fun App() {
     var searchOpen by remember { mutableStateOf(false) }
     var favorites by remember { mutableStateOf(prefs.favorites) }
 
+    var epgTick by remember { mutableIntStateOf(0) }
+    var groqInfo by remember { mutableStateOf<String?>(null) }
     var playing by remember { mutableStateOf<Channel?>(null) }
     var player by remember { mutableStateOf<ExoPlayer?>(null) }
     var subOrig by remember { mutableStateOf("") }
@@ -158,6 +160,14 @@ fun App() {
         if (System.currentTimeMillis() - subStamp >= 9000) { subOrig = ""; subPl = "" }
     }
 
+    // Wskaźnik darmowego limitu Groq
+    LaunchedEffect(Unit) {
+        while (true) {
+            groqInfo = CloudApi.GroqStatus.summary()
+            delay(5000)
+        }
+    }
+
     // Komunikaty (błędy, limity) znikają same po 6 s
     LaunchedEffect(status) {
         if (status.isBlank()) return@LaunchedEffect
@@ -172,10 +182,24 @@ fun App() {
             val result = CloudApi.fetchText(m3uUrl.trim()).mapCatching { M3U.parse(it) }
             launch(Dispatchers.Main) {
                 loading = false
-                result.onSuccess {
-                    channels = it
+                result.onSuccess { data ->
+                    channels = data.channels
                     prefs.m3uUrl = m3uUrl.trim()
-                    status = if (it.isEmpty()) "Playlista nie zawiera kanałów" else "Wczytano ${it.size} kanałów"
+                    status = if (data.channels.isEmpty()) "Playlista nie zawiera kanałów"
+                             else "Wczytano ${data.channels.size} kanałów"
+                    if (data.epgUrl.isNotBlank()) {
+                        launch(Dispatchers.IO) {
+                            val r = Epg.load(data.epgUrl)
+                            launch(Dispatchers.Main) {
+                                r.onSuccess { n ->
+                                    epgTick++
+                                    status = "Program TV wczytany ($n kanałów)"
+                                }.onFailure {
+                                    status = "Nie udało się pobrać programu TV"
+                                }
+                            }
+                        }
+                    }
                 }.onFailure { status = "Błąd playlisty: ${it.message}" }
             }
         }
@@ -215,6 +239,19 @@ fun App() {
         tune(next)
     }
 
+    var epgLine by remember { mutableStateOf("") }
+    LaunchedEffect(playing, epgTick) {
+        while (playing != null) {
+            val (nowT, nextT) = playing?.let { Epg.nowNext(it) } ?: (null to null)
+            epgLine = listOfNotNull(
+                nowT?.let { "Teraz: $it" },
+                nextT?.let { "Potem: $it" },
+            ).joinToString("   •   ")
+            delay(60_000)
+        }
+        epgLine = ""
+    }
+
     LaunchedEffect(Unit) { if (prefs.m3uUrl.isNotBlank()) loadPlaylist() }
     DisposableEffect(Unit) { onDispose { stopPlayback() } }
 
@@ -230,6 +267,7 @@ fun App() {
             subPos = prefs.subPos,
             subBg = prefs.subBg,
             subColor = prefs.subColor,
+            epgLine = epgLine,
             showOrig = showOrig,
             isFav = playing!!.url in favorites,
             onToggleOrig = { showOrig = !showOrig; prefs.showOrig = showOrig },
@@ -242,6 +280,7 @@ fun App() {
         MainScreen(
             channels = channels, favorites = favorites,
             lastChannel = prefs.lastChannel,
+            epgTick = epgTick, groqInfo = groqInfo,
             tab = tab, onTab = { tab = it; selectedGroup = null },
             selectedGroup = selectedGroup, onGroup = { selectedGroup = it },
             search = search, onSearch = { search = it },
@@ -269,6 +308,7 @@ fun App() {
 fun MainScreen(
     channels: List<Channel>, favorites: Set<String>,
     lastChannel: String,
+    epgTick: Int, groqInfo: String?,
     tab: Int, onTab: (Int) -> Unit,
     selectedGroup: String?, onGroup: (String?) -> Unit,
     search: String, onSearch: (String) -> Unit,
@@ -321,6 +361,10 @@ fun MainScreen(
             Text(status, color = Dim, fontSize = 12.5.sp,
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp))
 
+        if (groqInfo != null)
+            Text(groqInfo, color = Dim, fontSize = 11.5.sp,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp))
+
         // Wznów ostatni kanał
         val lastUrl = lastChannel.substringBefore("|")
         val lastName = lastChannel.substringAfter("|", "")
@@ -367,14 +411,14 @@ fun MainScreen(
             "${c.name} ${c.group}".contains(search, ignoreCase = true)
 
         when {
-            searching -> ChannelList(channels.filter(::matches), favorites, onPick, onToggleFav)
+            searching -> ChannelList(channels.filter(::matches), favorites, epgTick, onPick, onToggleFav)
             tab == 0 -> {
                 val favs = channels.filter { it.url in favorites }
                 if (favs.isEmpty())
                     EmptyInfo("Brak ulubionych — dotknij serduszka przy kanale.")
-                else ChannelList(favs, favorites, onPick, onToggleFav)
+                else ChannelList(favs, favorites, epgTick, onPick, onToggleFav)
             }
-            tab == 1 -> ChannelList(channels, favorites, onPick, onToggleFav)
+            tab == 1 -> ChannelList(channels, favorites, epgTick, onPick, onToggleFav)
             else -> {
                 if (selectedGroup == null) {
                     LazyVerticalGrid(
@@ -413,7 +457,7 @@ fun MainScreen(
                             fontWeight = FontWeight.SemiBold)
                     }
                     ChannelList(groups[selectedGroup] ?: emptyList(),
-                        favorites, onPick, onToggleFav)
+                        favorites, epgTick, onPick, onToggleFav)
                 }
             }
         }
@@ -429,7 +473,7 @@ fun EmptyInfo(msg: String) {
 
 @Composable
 fun ChannelList(
-    list: List<Channel>, favorites: Set<String>,
+    list: List<Channel>, favorites: Set<String>, epgTick: Int,
     onPick: (Channel) -> Unit, onToggleFav: (Channel) -> Unit,
 ) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 12.dp)) {
@@ -464,6 +508,10 @@ fun ChannelList(
                     if (ch.group.isNotBlank())
                         Text(ch.group, color = Dim, fontSize = 12.sp, maxLines = 1,
                             overflow = TextOverflow.Ellipsis)
+                    val nowTitle = remember(epgTick, ch) { Epg.nowNext(ch).first }
+                    if (nowTitle != null)
+                        Text("Teraz: $nowTitle", color = Accent.copy(alpha = 0.85f),
+                            fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 if (ch.lang != "auto")
                     Text(ch.lang.uppercase(), color = Bg, fontSize = 10.sp,
@@ -490,6 +538,7 @@ fun PlayerScreen(
     channel: Channel, player: ExoPlayer,
     subOrig: String, subPl: String, status: String,
     subSize: Int, subPos: Int, subBg: Boolean, subColor: Int,
+    epgLine: String,
     showOrig: Boolean, isFav: Boolean,
     onToggleOrig: () -> Unit, onToggleFav: () -> Unit,
     onPrev: () -> Unit, onNext: () -> Unit,
@@ -508,9 +557,9 @@ fun PlayerScreen(
         )
 
         // Pasek górny
+        Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding()) {
         Row(
-            Modifier.align(Alignment.TopCenter).fillMaxWidth()
-                .statusBarsPadding().padding(horizontal = 4.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TextButton(onClick = onBack) { Text("‹", color = Accent, fontSize = 22.sp) }
@@ -532,6 +581,16 @@ fun PlayerScreen(
                 Text("Or.", color = if (showOrig) Accent else Dim,
                     fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
+        }
+        if (epgLine.isNotBlank()) {
+            Text(
+                epgLine, color = Color(0xFFB9C7D6), fontSize = 12.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 14.dp)
+                    .background(Color(0x66000000), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
+            )
+        }
         }
 
         if (status.isNotBlank()) {

@@ -17,6 +17,24 @@ object CloudApi {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    /** Stan darmowego limitu Groq — odświeżany przy każdym zapytaniu o transkrypcję. */
+    object GroqStatus {
+        @Volatile var limitReq: Int? = null          // zapytania / dzień
+        @Volatile var remainingReq: Int? = null
+        @Volatile var limitAudioSec: Int? = null     // sekundy audio / godzinę
+        @Volatile var remainingAudioSec: Int? = null
+
+        fun summary(): String? {
+            val lr = limitReq ?: return null
+            val rr = remainingReq ?: return null
+            val pct = if (lr > 0) rr * 100 / lr else 0
+            var s = "Darmowy limit Groq: $rr z $lr zapytań dziś ($pct%)"
+            val ls = limitAudioSec; val rs = remainingAudioSec
+            if (ls != null && rs != null) s += " • ${rs}s z ${ls}s audio/godz."
+            return s
+        }
+    }
+
     /**
      * Rozpoznawanie mowy. Dostawca wykrywany po kluczu:
      *  - "gsk_..." → Groq (darmowy tier, whisper-large-v3-turbo)
@@ -43,6 +61,16 @@ object CloudApi {
                 .post(body)
                 .build()
             http.newCall(req).execute().use { resp ->
+                if (groq) {
+                    resp.header("x-ratelimit-limit-requests")?.toIntOrNull()
+                        ?.let { GroqStatus.limitReq = it }
+                    resp.header("x-ratelimit-remaining-requests")?.toIntOrNull()
+                        ?.let { GroqStatus.remainingReq = it }
+                    resp.header("x-ratelimit-limit-audio-seconds")?.toIntOrNull()
+                        ?.let { GroqStatus.limitAudioSec = it }
+                    resp.header("x-ratelimit-remaining-audio-seconds")?.toIntOrNull()
+                        ?.let { GroqStatus.remainingAudioSec = it }
+                }
                 val txt = resp.body?.string() ?: ""
                 if (!resp.isSuccessful)
                     return Result.failure(Exception("Whisper HTTP ${resp.code}: ${txt.take(120)}"))

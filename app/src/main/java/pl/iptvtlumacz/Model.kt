@@ -8,7 +8,10 @@ data class Channel(
     val group: String,
     val logo: String,
     val lang: String,   // "auto" lub kod ISO: de/it/en/fr/es...
+    val tvgId: String = "",
 )
+
+data class PlaylistData(val channels: List<Channel>, val epgUrl: String)
 
 object M3U {
 
@@ -30,14 +33,19 @@ object M3U {
         return "auto"
     }
 
-    fun parse(text: String): List<Channel> {
+    fun parse(text: String): PlaylistData {
         val out = mutableListOf<Channel>()
+        var epgUrl = ""
         var name: String? = null
         var attrs: Map<String, String> = emptyMap()
         for (raw in text.lineSequence()) {
             val line = raw.trim()
             when {
                 line.isEmpty() -> {}
+                line.startsWith("#EXTM3U") -> {
+                    val a = ATTR.findAll(line).associate { it.groupValues[1] to it.groupValues[2] }
+                    epgUrl = a["url-tvg"] ?: a["x-tvg-url"] ?: ""
+                }
                 line.startsWith("#EXTINF") -> {
                     EXTINF.find(line)?.let { m ->
                         attrs = ATTR.findAll(m.groupValues[2])
@@ -54,12 +62,13 @@ object M3U {
                         group = group,
                         logo = attrs["tvg-logo"] ?: "",
                         lang = guessLang(name!!, group),
+                        tvgId = attrs["tvg-id"] ?: "",
                     )
                     name = null; attrs = emptyMap()
                 }
             }
         }
-        return out
+        return PlaylistData(out, epgUrl)
     }
 }
 
