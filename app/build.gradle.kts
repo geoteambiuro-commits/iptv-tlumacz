@@ -5,15 +5,23 @@ plugins {
 }
 
 android {
-    namespace = "pl.geomiar.iptvtlumacz"
+    namespace = "pl.iptvtlumacz"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "pl.geomiar.iptvtlumacz"
+        applicationId = "pl.iptvtlumacz"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+    }
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
     buildTypes {
         release {
