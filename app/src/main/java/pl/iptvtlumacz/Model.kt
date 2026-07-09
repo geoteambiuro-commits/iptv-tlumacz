@@ -122,4 +122,9 @@ class Prefs(context: Context) {
     var subBg: Boolean
         get() = sp.getBoolean("subBg", true)
         set(v) = sp.edit().putBoolean("subBg", v).apply()
+
+    /** Zapis ostatniej awarii (czarna skrzynka). */
+    var lastCrash: String
+        get() = sp.getString("lastCrash", "") ?: ""
+        set(v) = sp.edit().putString("lastCrash", v).commit().let { }
 }

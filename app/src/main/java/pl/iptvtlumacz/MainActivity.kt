@@ -55,6 +55,13 @@ private val SubYellow = Color(0xFFFFE14D)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Czarna skrzynka: zapisz błąd, żeby pokazać go po ponownym uruchomieniu.
+        val prefsForCrash = Prefs(this)
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, e ->
+            runCatching { prefsForCrash.lastCrash = e.stackTraceToString().take(4000) }
+            previous?.uncaughtException(thread, e)
+        }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(
@@ -195,6 +202,31 @@ fun App() {
             onPick = { tune(it) },
             onToggleFav = { toggleFav(it) },
             onSettings = { showSettings = true },
+        )
+    }
+
+    var crashText by remember { mutableStateOf(prefs.lastCrash) }
+    if (crashText.isNotBlank()) {
+        val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+        AlertDialog(
+            onDismissRequest = { prefs.lastCrash = ""; crashText = "" },
+            confirmButton = {
+                TextButton(onClick = {
+                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(crashText))
+                }) { Text("Kopiuj") }
+            },
+            dismissButton = {
+                TextButton(onClick = { prefs.lastCrash = ""; crashText = "" }) { Text("Zamknij") }
+            },
+            title = { Text("Ostatnie uruchomienie zakończyło się błędem") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text("Skopiuj poniższą treść i wyślij ją Claude:",
+                        color = Dim, fontSize = 13.sp)
+                    Spacer(Modifier.height(6.dp))
+                    Text(crashText, fontSize = 11.sp)
+                }
+            },
         )
     }
 
@@ -354,7 +386,7 @@ fun ChannelList(
     onPick: (Channel) -> Unit, onToggleFav: (Channel) -> Unit,
 ) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 12.dp)) {
-        items(list, key = { it.url + it.name }) { ch ->
+        items(list) { ch ->
             Row(
                 Modifier.fillMaxWidth()
                     .padding(horizontal = 10.dp, vertical = 3.dp)
