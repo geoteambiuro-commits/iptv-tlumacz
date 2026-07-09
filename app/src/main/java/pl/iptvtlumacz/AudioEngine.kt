@@ -101,8 +101,21 @@ class AudioEngine(
     fun stop() {
         worker?.cancel()
         worker = null
+        history.clear()
         synchronized(pending) { pending.reset() }
         while (chunks.tryReceive().isSuccess) { /* opróżnij */ }
+    }
+
+    // Ostatnie pary (oryginał → polski) jako kontekst dla tłumacza.
+    private val history = ArrayDeque<Pair<String, String>>()
+
+    private fun <T> withRetry(block: () -> Result<T>): Result<T> {
+        val first = block()
+        if (first.isSuccess) return first
+        val msg = first.exceptionOrNull()?.message ?: ""
+        if ("429" in msg) return first          // limit — ponawianie nie pomoże
+        Thread.sleep(1200)
+        return block()
     }
 
     private fun process(mono: ShortArray) {
@@ -119,8 +132,10 @@ class AudioEngine(
 
         val wav = pcmToWav(mono, TARGET_RATE)
         val lang = cfg.lang.takeIf { it != "auto" }
-        val text = CloudApi.transcribe(wav, lang, cfg.openaiKey).getOrElse {
-            onStatus(it.message ?: "Błąd rozpoznawania mowy"); return
+        val text = withRetry { CloudApi.transcribe(wav, lang, cfg.openaiKey) }.getOrElse {
+            val m = it.message ?: "Błąd rozpoznawania mowy"
+            onStatus(if ("429" in m) "Limit darmowego Groq chwilowo wyczerpany — napisy wrócą za parę minut" else m)
+            return
         }
         if (text.length < 2 || text.lowercase() in HALLUCINATIONS) return
 
@@ -128,9 +143,15 @@ class AudioEngine(
             onStatus("Uzupełnij klucz Claude w ustawieniach — pokazuję oryginał")
             null
         } else {
-            CloudApi.translate(text, cfg.lang, cfg.anthropicKey).getOrElse {
+            withRetry {
+                CloudApi.translate(text, cfg.lang, cfg.anthropicKey, history.toList())
+            }.getOrElse {
                 onStatus(it.message ?: "Błąd tłumaczenia"); null
             }
+        }
+        if (polish != null) {
+            history.addLast(text to polish)
+            while (history.size > 3) history.removeFirst()
         }
         onSubtitle(text, polish ?: text)
     }

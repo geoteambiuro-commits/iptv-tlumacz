@@ -7,6 +7,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -169,6 +171,9 @@ fun App() {
             subOrig = if (showOrig) subOrig else "",
             subPl = subPl,
             status = status,
+            subSize = prefs.subSize,
+            subPos = prefs.subPos,
+            subBg = prefs.subBg,
             showOrig = showOrig,
             isFav = playing!!.url in favorites,
             onToggleOrig = { showOrig = !showOrig; prefs.showOrig = showOrig },
@@ -405,6 +410,7 @@ fun ChannelList(
 fun PlayerScreen(
     channel: Channel, player: ExoPlayer,
     subOrig: String, subPl: String, status: String,
+    subSize: Int, subPos: Int, subBg: Boolean,
     showOrig: Boolean, isFav: Boolean,
     onToggleOrig: () -> Unit, onToggleFav: () -> Unit,
     onPrev: () -> Unit, onNext: () -> Unit,
@@ -460,29 +466,33 @@ fun PlayerScreen(
         }
 
         // Napisy
+        val bottomPad = when (subPos) { 1 -> 110.dp; 2 -> 200.dp; else -> 46.dp }
+        val bgOrig = if (subBg) Color(0x73000000) else Color.Transparent
+        val bgPl = if (subBg) Color(0x80000000) else Color.Transparent
         Column(
             Modifier.align(Alignment.BottomCenter)
                 .navigationBarsPadding()
-                .padding(bottom = 46.dp, start = 20.dp, end = 20.dp),
+                .padding(bottom = bottomPad, start = 20.dp, end = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             if (subOrig.isNotBlank()) {
                 Text(
-                    subOrig, color = Color(0xFFCFD8E3), fontSize = 14.sp,
+                    subOrig, color = Color(0xFFCFD8E3),
+                    fontSize = (subSize * 2 / 3).coerceAtLeast(12).sp,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
-                        .background(Color(0x73000000), RoundedCornerShape(6.dp))
+                        .background(bgOrig, RoundedCornerShape(6.dp))
                         .padding(horizontal = 10.dp, vertical = 3.dp),
                 )
                 Spacer(Modifier.height(5.dp))
             }
             if (subPl.isNotBlank()) {
                 Text(
-                    subPl, color = SubYellow, fontSize = 21.sp,
+                    subPl, color = SubYellow, fontSize = subSize.sp,
                     fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
-                    lineHeight = 27.sp,
+                    lineHeight = (subSize + 6).sp,
                     modifier = Modifier
-                        .background(Color(0x80000000), RoundedCornerShape(8.dp))
+                        .background(bgPl, RoundedCornerShape(8.dp))
                         .padding(horizontal = 14.dp, vertical = 5.dp),
                 )
             }
@@ -500,6 +510,9 @@ fun SettingsDialog(
     var openai by remember { mutableStateOf(prefs.openaiKey) }
     var anthropic by remember { mutableStateOf(prefs.anthropicKey) }
     var m3u by remember { mutableStateOf(prefs.m3uUrl) }
+    var subSize by remember { mutableIntStateOf(prefs.subSize) }
+    var subPos by remember { mutableIntStateOf(prefs.subPos) }
+    var subBg by remember { mutableStateOf(prefs.subBg) }
     val langs = listOf(
         "auto" to "wykryj automatycznie", "de" to "niemiecki", "it" to "włoski",
         "en" to "angielski", "fr" to "francuski", "es" to "hiszpański",
@@ -512,13 +525,19 @@ fun SettingsDialog(
                 prefs.openaiKey = openai.trim()
                 prefs.anthropicKey = anthropic.trim()
                 prefs.m3uUrl = m3u.trim()
+                prefs.subSize = subSize
+                prefs.subPos = subPos
+                prefs.subBg = subBg
                 onClose()
             }) { Text("Zapisz") }
         },
         dismissButton = { TextButton(onClick = onClose) { Text("Anuluj") } },
         title = { Text("Ustawienia") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+            ) {
                 OutlinedTextField(
                     value = m3u, onValueChange = { m3u = it },
                     label = { Text("Adres playlisty M3U") }, singleLine = true,
@@ -544,6 +563,29 @@ fun SettingsDialog(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = showOrig, onCheckedChange = onShowOrig)
                     Text("Pokazuj tekst oryginalny", fontSize = 14.sp)
+                }
+                HorizontalDivider()
+                Text("Napisy — rozmiar: ${'$'}{subSize}", color = Dim, fontSize = 13.sp)
+                Slider(
+                    value = subSize.toFloat(),
+                    onValueChange = { subSize = it.toInt() },
+                    valueRange = 16f..32f, steps = 15,
+                )
+                Text("Napisy — pozycja:", color = Dim, fontSize = 13.sp)
+                Row {
+                    listOf("nisko", "średnio", "wysoko").forEachIndexed { i, label ->
+                        Row(
+                            Modifier.clickable { subPos = i }.padding(end = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = subPos == i, onClick = { subPos = i })
+                            Text(label, fontSize = 13.sp)
+                        }
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = subBg, onCheckedChange = { subBg = it })
+                    Text("Ciemne tło pod napisami", fontSize = 14.sp)
                 }
             }
         },

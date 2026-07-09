@@ -107,4 +107,19 @@ class Prefs(context: Context) {
     var favorites: Set<String>
         get() = sp.getStringSet("favs", emptySet()) ?: emptySet()
         set(v) = sp.edit().putStringSet("favs", HashSet(v)).apply()
+
+    /** Rozmiar polskiej linii napisów w sp (16–32). */
+    var subSize: Int
+        get() = sp.getInt("subSize", 21)
+        set(v) = sp.edit().putInt("subSize", v).apply()
+
+    /** Pozycja napisów: 0 nisko, 1 średnio, 2 wysoko. */
+    var subPos: Int
+        get() = sp.getInt("subPos", 0)
+        set(v) = sp.edit().putInt("subPos", v).apply()
+
+    /** Ciemne tło pod napisami. */
+    var subBg: Boolean
+        get() = sp.getBoolean("subBg", true)
+        set(v) = sp.edit().putBoolean("subBg", v).apply()
 }

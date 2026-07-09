@@ -53,22 +53,34 @@ object CloudApi {
         }
     }
 
-    /** Tłumaczenie na polski: Claude API (Haiku). */
-    fun translate(text: String, srcLang: String, apiKey: String): Result<String> {
+    /**
+     * Tłumaczenie na polski: Claude API (Haiku).
+     * history — poprzednie pary (oryginał → polski) jako kontekst rozmowy,
+     * dzięki czemu tłumaczenie zachowuje spójność (zaimki, terminologia).
+     */
+    fun translate(
+        text: String, srcLang: String, apiKey: String,
+        history: List<Pair<String, String>> = emptyList(),
+    ): Result<String> {
         return try {
             val srcName = LANG_NAMES[srcLang] ?: "obcy"
+            val messages = JSONArray()
+            for ((orig, pl) in history) {
+                messages.put(JSONObject().put("role", "user").put("content", orig))
+                messages.put(JSONObject().put("role", "assistant").put("content", pl))
+            }
+            messages.put(JSONObject().put("role", "user").put("content", text))
             val payload = JSONObject()
                 .put("model", "claude-haiku-4-5")
                 .put("max_tokens", 300)
                 .put(
                     "system",
-                    "Jesteś tłumaczem napisów telewizyjnych na żywo. Przetłumacz podany " +
-                    "fragment z języka ($srcName) na polski, naturalnie i zwięźle. " +
-                    "Zwróć WYŁĄCZNIE tłumaczenie, bez komentarzy i cudzysłowów."
+                    "Jesteś tłumaczem napisów telewizyjnych na żywo. Każda wiadomość użytkownika " +
+                    "to kolejna kwestia z tej samej audycji w języku ($srcName). Tłumacz każdą " +
+                    "na polski, naturalnie i zwięźle, zachowując spójność z poprzednimi kwestiami. " +
+                    "Zwracaj WYŁĄCZNIE tłumaczenie, bez komentarzy i cudzysłowów."
                 )
-                .put("messages", JSONArray().put(
-                    JSONObject().put("role", "user").put("content", text)
-                ))
+                .put("messages", messages)
             val req = Request.Builder()
                 .url("https://api.anthropic.com/v1/messages")
                 .header("x-api-key", apiKey)
